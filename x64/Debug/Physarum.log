@@ -1,0 +1,13 @@
+﻿  Main.cpp
+D:\Programas\Physarum\Physarum\Physarum\Shader.h(51,35): warning C4101: 'e': unreferenced local variable
+D:\Programas\Physarum\Physarum\Physarum\Shader.h(101,35): warning C4101: 'e': unreferenced local variable
+D:\Programas\Physarum\Physarum\Physarum\Main.cpp(239,25): warning C4018: '<': signed/unsigned mismatch
+D:\Programas\Physarum\Physarum\Physarum\Main.cpp(535,18): warning C4244: '=': conversion from 'double' to 'float', possible loss of data
+D:\Programas\Physarum\Physarum\Physarum\Main.cpp(536,18): warning C4244: '=': conversion from 'double' to 'float', possible loss of data
+D:\Programas\Physarum\Physarum\Physarum\Main.cpp(540,18): warning C4244: 'initializing': conversion from 'double' to 'float', possible loss of data
+D:\Programas\Physarum\Physarum\Physarum\Main.cpp(541,18): warning C4244: 'initializing': conversion from 'double' to 'float', possible loss of data
+D:\Programas\Physarum\Physarum\Physarum\Main.cpp(542,17): warning C4244: '=': conversion from 'double' to 'float', possible loss of data
+D:\Programas\Physarum\Physarum\Physarum\Main.cpp(543,17): warning C4244: '=': conversion from 'double' to 'float', possible loss of data
+D:\Programas\Physarum\Physarum\Physarum\Main.cpp(604,13): warning C4244: 'return': conversion from 'double' to 'float', possible loss of data
+LINK : warning LNK4098: defaultlib 'MSVCRT' conflicts with use of other libs; use /NODEFAULTLIB:library
+  Physarum.vcxproj -> D:\Programas\Physarum\Physarum\x64\Debug\Physarum.exe
