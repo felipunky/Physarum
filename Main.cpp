@@ -19,6 +19,18 @@
 #include <iostream>
 #include <random>
 
+struct Particle
+{
+
+	/*Particle(glm::vec4 aPos, glm::vec4 aVel):
+		Pos{aPos}, Vel{aVel} {}*/
+
+	glm::vec4 Pos;
+	glm::vec4 Vel;
+
+};
+
+
 class Physarum
 {
 
@@ -26,13 +38,17 @@ public:
 
 	void run()
 	{
+
 		initWindow();
+		workGroupSize();
 		//initPoints();
 		//renderPoints();
 		initSSBO();
+		initVolumeTexture();
 		renderPoints();
 		renderLoop();
 		clearResources();
+	
 	}
 
 private:
@@ -45,7 +61,7 @@ private:
 
 	// User interaction.
 	// OpenGL is right handed so the last component corresponds to move forward/backwards.
-	const float SPEED = 5.0f;
+	const float SPEED = 10.0f;
 	glm::vec3 camPos = glm::vec3(0.0f);
 	glm::vec3 camFront = glm::vec3(0.0f, 0.0f, -1.0f);
 	glm::vec3 camUp = glm::vec3(0.0f, 1.0f, 0.0f);
@@ -59,26 +75,37 @@ private:
 	// How much time between frames.
 	float deltaTime = 0.0f, lastFrame = 0.0f;
 
+	float frame = 0.0f;
+
+	glm::vec2 texelSize, executionSize;
+
 	// Geometry.
-	const GLuint dimX = 50u, dimY = dimX, dimZ = dimX, numberOfPoints = dimX * dimY * dimZ;
+	const GLuint dimX = 800u, dimY = 450, dimZ = 1u, numberOfPoints = dimX * dimY * dimZ;
 
 	// Yes I have masochistic tendencies. 
 	//std::vector<glm::vec3> points;
-	glm::vec4* positions;
-	glm::vec4* velocities;
+	//glm::vec4* positions;
+	//glm::vec4* velocities;
+	Particle* particles;
 
 	// FBOs
-	GLuint FBOA, FBOB;
+	GLuint FBO, texColourObj;
 
 	// Buffer objects
-	GLuint VBO, VAO;
+	GLuint VBO, VAO, screenVAO, screenVBO, screenEBO;
 
 	// SSBOs.
-	GLuint posSSBO, velSSBO;
+	GLuint particleSSBO;// posSSBO, velSSBO;
 
 	// Shaders.
 	Shader* shaderA;
 	Shader* shaderC;
+	Shader* shaderScreen;
+
+	// Volume texture.
+	GLuint volumeTex;
+	float* volumeIntensities;
+	GLuint computeTex;
 
 	// GUI.
 	float distance = 0.03f;
@@ -136,16 +163,25 @@ private:
 		// Setup Style
 		ImGui::StyleColorsDark();
 
+		// Save the resolution.
+		executionSize = glm::vec2(width, height);
+
+		// Compute texel size.
+		texelSize = 1.0f / executionSize;
+
 	}
 
-	/*void initFBO(GLuint FBO)
+	void renderTarget()
 	{
+
+		glGenFramebuffers(1, &FBO);
+		glBindFramebuffer(GL_FRAMEBUFFER, FBO);
 
 		// Create a colour attachment texture.
 		GLuint textureColourBuffer;
 		glGenTextures(1, &textureColourBuffer);
 		glBindTexture(GL_TEXTURE_2D, textureColourBuffer);
-		glTexImage2D(GL_TEXTURE_2D, 0, 0, width, height, 0, GL_RGB, GL_UNSIGNED_BYTE, NULL);
+		glTexImage2D(GL_TEXTURE_2D, 0, 0, width, height, 0, GL_RGBA32F, GL_UNSIGNED_BYTE, NULL);
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
@@ -156,23 +192,66 @@ private:
 		{
 			throw::std::runtime_error("Framebuffer is not complete!");
 		}
-
 		glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
-	}*/
+	}
+
+	void initFBO(GLuint* frameBufferObject, GLuint* textureColourBuffer)
+	{
+
+		glGenFramebuffers(1, frameBufferObject);
+		glBindFramebuffer(GL_FRAMEBUFFER, *frameBufferObject);
+
+		glfwSetFramebufferSizeCallback(window, frameBufferSizeCallback);
+
+		glGenTextures(1, textureColourBuffer);
+		glBindTexture(GL_TEXTURE_2D, *textureColourBuffer);
+		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+		glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, *textureColourBuffer, 0);
+
+		if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
+		{
+		
+			throw::std::runtime_error("ERROR::FRAMEBUFFER:: Framebuffer is not complete!");
+		
+		}
+		
+		glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+	}
+
+	void createImage(GLuint texture, GLuint index, GLuint width, GLuint height)
+	{
+
+		glGenTextures(1, &texture);
+		glActiveTexture(GL_TEXTURE0);
+		glBindTexture(GL_TEXTURE_2D, texture);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, width, height, 0, GL_RGBA, GL_FLOAT, NULL);
+		glBindImageTexture(index, texture, 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_RGBA32F);
+		glBindTexture(GL_TEXTURE_2D, 0);
+
+	}
 
 	void initSSBO()
 	{
 
 		/* Positions ShaderStorageBufferObject Start. */
 
-		glGenBuffers(1, &posSSBO);
-		glBindBuffer(GL_SHADER_STORAGE_BUFFER, posSSBO);
-		glBufferData(GL_SHADER_STORAGE_BUFFER, numberOfPoints * sizeof(glm::vec4), nullptr, GL_STATIC_DRAW);
+		glGenBuffers(1, &particleSSBO);
+		glBindBuffer(GL_SHADER_STORAGE_BUFFER, particleSSBO);
+		glBufferData(GL_SHADER_STORAGE_BUFFER, numberOfPoints * sizeof(Particle), nullptr, GL_STATIC_DRAW);
 
 		GLint bufMask = GL_MAP_WRITE_BIT | GL_MAP_INVALIDATE_BUFFER_BIT;
 
-		positions = (glm::vec4*) glMapBufferRange(GL_SHADER_STORAGE_BUFFER, 0, numberOfPoints * sizeof(glm::vec4), bufMask);
+		particles = (Particle*) glMapBufferRange(GL_SHADER_STORAGE_BUFFER, 0, numberOfPoints * sizeof(Particle), bufMask);
 
 		// Not sure if this does it the SIMD way but I am way too used to write shaders.
 		glm::vec3 dim = glm::vec3(dimX, dimY, dimZ) * .5f;
@@ -180,7 +259,8 @@ private:
 
 		int idx = 0;
 
-		for (int16_t z = (int16_t)negDim.z; z < (int16_t)dim.z; ++z)
+		//for (int16_t z = (int16_t)negDim.z; z < (int16_t)dim.z; ++z)
+		
 		{
 
 			for (int16_t y = (int16_t)negDim.y; y < (int16_t)dim.y; ++y)
@@ -189,7 +269,12 @@ private:
 				for (int16_t x = (int16_t)negDim.x; x < (int16_t)dim.x; ++x)
 				{
 
-					positions[idx] = glm::vec4(x, y, z, 0.0f) * 0.03f;
+					glm::vec4 pos = glm::vec4(glm::vec2(x, y) * texelSize, 0.0f, 0.0f);
+					glm::vec4 vel = glm::vec4(glm::ballRand(1.0f), 1.0f);
+					particles[idx].Pos = pos;// Particle(pos, vel);
+					particles[idx].Vel = vel;
+					//std::cout << std::to_string(particles[idx].Pos.x) << std::endl;
+					//particles[idx].Vel = glm::vec4(glm::ballRand(1.0f), 1.0f);
 					//std::cout << "x: " + std::to_string(x) << std::endl;
 
 					idx++;
@@ -206,15 +291,15 @@ private:
 
 		/* Velocities ShaderStorageBufferObject Start. */
 
-		glGenBuffers(1, &velSSBO);
+		/*glGenBuffers(1, &velSSBO);
 		glBindBuffer(GL_SHADER_STORAGE_BUFFER, velSSBO);
 		glBufferData(GL_SHADER_STORAGE_BUFFER, numberOfPoints * sizeof(glm::vec4), nullptr, GL_STATIC_DRAW);
 
 		velocities = (glm::vec4*) glMapBufferRange(GL_SHADER_STORAGE_BUFFER, 0, numberOfPoints * sizeof(glm::vec4), bufMask);
 
-		/*idx = 0;
+		idx = 0;
 
-		for (int16_t z = (int16_t)negDim.z; z < (int16_t)dim.z; ++z)
+		//for (int16_t z = (int16_t)negDim.z; z < (int16_t)dim.z; ++z)
 		{
 
 			for (int16_t y = (int16_t)negDim.y; y < (int16_t)dim.y; ++y)
@@ -223,7 +308,7 @@ private:
 				for (int16_t x = (int16_t)negDim.x; x < (int16_t)dim.x; ++x)
 				{
 
-					velocities[idx] = glm::ballRand(glm::vec3(1.0f));// glm::vec3(x, y, z) * 0.03f;
+					velocities[idx] = glm::vec4(glm::ballRand(1.0f), 1.0f);// glm::vec3(x, y, z) * 0.03f;
 					//std::cout << "x: " + std::to_string(x) << std::endl;
 
 					idx++;
@@ -232,18 +317,25 @@ private:
 
 			}
 
-		}*/
-
-		// Let's flatten this:
-
-		for (int16_t i = 0; i < numberOfPoints; ++i)
-		{
-			velocities[i] = glm::vec4(glm::vec3(Rand()), 1.0f);// glm::vec3(x, y, z) * 0.03f;
 		}
 
-		glUnmapBuffer(GL_SHADER_STORAGE_BUFFER);
+		glUnmapBuffer(GL_SHADER_STORAGE_BUFFER);*/
 
 		/* Velocities ShaderStorageBufferObject End. */
+
+	}
+
+	void initVolumeTexture()
+	{
+
+		volumeIntensities = new float[numberOfPoints];
+
+		for (uint16_t i = 0u; i < (uint16_t) numberOfPoints; ++i) 
+		{
+		
+			volumeIntensities[i] = 0.0f;
+		
+		}
 
 	}
 
@@ -254,18 +346,43 @@ private:
 		shaderA->use();
 
 		// No need to compute this every frame as the FOV stays always the same.
-		glm::mat4 projection = glm::perspective(glm::radians(45.0f), (float)width / (float)height,
-			0.1f, 100.0f
-		);
+		glm::mat4 projection = glm::perspective(glm::radians(45.0f), (float)width / (float)height, 0.1f, 100.0f);
 		shaderA->setMat4("projection", projection);
 
 		glm::mat4 model = glm::mat4(1.0f);
 		shaderA->setMat4("model", model);
+		//shaderA->setInt("volumeTex", 0);
 
 		shaderC = &Shader(nullptr, nullptr, "Comp.comp", true);
+		shaderC->use();
+
+		glGenTextures(1, &computeTex);
+
+		int texture_width = width;
+		int texture_height = height;
+		glActiveTexture(GL_TEXTURE0);
+		glBindTexture(GL_TEXTURE_2D, computeTex);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, texture_width, texture_height, 0, GL_RGBA, GL_FLOAT, NULL);
+		glBindImageTexture(0, computeTex, 0, GL_FALSE, 0, GL_READ_WRITE, GL_RGBA32F);
+		//glBindTexture(GL_TEXTURE_2D, 0); // unbind
+		//createImage(computeTex, 0, width, height);
+		//shaderC->setInt("imgResult", 2);
+		//shaderC->create3DTexture(&volumeTex, "volumeTex", dimX, dimY, dimZ, 2, volumeIntensities);
+		
 		/*shaderC->bindBufferBase(0, posSSBO);
 		shaderC->bindBufferBase(1, velSSBO);
 		*/
+
+		shaderScreen = &Shader("ScreenVert.vert", "ScreenFrag.frag", nullptr, false);
+		shaderScreen->use();
+		//shaderScreen->setInt("screenTexture", 0);
+		shaderScreen->setInt("computeTexture", 0);
+		shaderScreen->setInt("screenTexture", 1);
+		initFBO(&FBO, &texColourObj);
 
 		while (!glfwWindowShouldClose(window))
 		{
@@ -278,26 +395,52 @@ private:
 			deltaTime = time - lastFrame;
 			lastFrame = time;
 
-			shaderC->bindBufferBase(0, posSSBO);
-			shaderC->bindBufferBase(1, velSSBO);
-			//shaderC->setFloat("iTimeDelta", time);
-			shaderC->compute(numberOfPoints / 1000, 1, 1);
+			shaderC->use();
+			// Position and velocities.
+			//shaderC->bindBufferBase(0, posSSBO);
+			//shaderC->bindBufferBase(1, velSSBO);
+			shaderC->bindBufferBase(1, particleSSBO);
+			glActiveTexture(GL_TEXTURE0);
+			glBindTexture(GL_TEXTURE_2D, computeTex);
+			//shaderC->bindImageBufferBase(computeTex);
+			//glBindTexture(GL_TEXTURE_2D, computeTex);
 
-			shaderA->use();
-			shaderA->setFloat("iTime", time);
+			// Volume data.
+			//glBindImageTexture(0, volumeTex, 0, GL_TRUE, 0, GL_READ_WRITE, GL_R8);
+			shaderC->setVec2("iResolution", executionSize);
+			shaderC->setFloat("iTimeDelta", deltaTime);
+			shaderC->setFloat("iFrame", frame);
+			shaderC->compute(numberOfPoints / 1024, 1, 1);
+			//glBindImageTexture(0, 0, 0, GL_TRUE, 0, GL_READ_WRITE, GL_R8);
 
-			glClearColor(0.2f, 0.3f, distance, 1.0f);
+			// bind to framebuffer and draw scene as we normally would to color texture 
+			glBindFramebuffer(GL_FRAMEBUFFER, FBO);
+			//glEnable(GL_DEPTH_TEST); // enable depth testing (is disabled for rendering screen-space quad)
+
+			glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
 			glClear(GL_COLOR_BUFFER_BIT);
 
-
-			glBindBuffer(GL_ARRAY_BUFFER, posSSBO);
-			glBindVertexArray(VAO);
-			glDrawArrays(GL_POINTS, 0, numberOfPoints);
+			shaderA->use();
+			//glActiveTexture(GL_TEXTURE0);
+			//glBindTexture(GL_TEXTURE_3D, volumeTex);
+			//glBindImageTexture(0, 0, 0, GL_TRUE, 0, GL_READ_WRITE, GL_R8);
+			shaderA->setFloat("iTime", time);
+			shaderA->setVec2("iResolution", executionSize);
 
 			// Create the camera (eye).
 			glm::mat4 view = glm::lookAt(camPos, camPos + camFront, camUp);
 			shaderA->setMat4("view", view);
 
+			// Sweet we don't need no expensive bus transfers from CPU->GPU->CPU->GPU!	
+			glBindBuffer(GL_ARRAY_BUFFER, particleSSBO);// posSSBO);
+			glBindVertexArray(VAO);
+			glDrawArrays(GL_POINTS, 0, numberOfPoints);
+			glBindVertexArray(0);
+
+			glBindFramebuffer(GL_FRAMEBUFFER, 0); // back to default
+			glClearColor(1.0f, 1.0f, 1.0f, 1.0f);
+			glClear(GL_COLOR_BUFFER_BIT);
+			
 			// User interaction.
 			processInput(window);
 
@@ -315,13 +458,37 @@ private:
 
 			ImGui::End();
 
+			//glClear(GL_COLOR_BUFFER_BIT);
+			glBindVertexArray(screenVAO);
+			shaderScreen->use();
+			shaderScreen->setVec2("iResolution", executionSize);
+
+			/*glActiveTexture(GL_TEXTURE0);
+			glBindTexture(GL_TEXTURE_2D, texColourObj);*/
+
+			glActiveTexture(GL_TEXTURE0);
+			glBindTexture(GL_TEXTURE_2D, computeTex);
+
+			glActiveTexture(GL_TEXTURE1);
+			glBindTexture(GL_TEXTURE_2D, texColourObj);
+
+			//shader->setInt("computeTex", 1);
+
+			renderQuad(shaderScreen, screenVAO, screenVBO, texColourObj, computeTex);
+
+			glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+
+			glBindVertexArray(0);
+
 			ImGui::Render();
 			ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 
 			glfwSwapBuffers(window);
 			glfwPollEvents();
 
-			std::cout << "Delta time: " + std::to_string(deltaTime * 1000.0f) << std::endl;
+			frame += 1.0f;
+
+			//std::cout << "Delta time: " + std::to_string(deltaTime * 1000.0f) << std::endl;
 
 		}
 
@@ -333,7 +500,34 @@ private:
 
 	}
 
-	void initPoints()
+	void renderQuad(Shader* shader, GLuint screenQuadVertexArrayObject, GLuint screenQuadVertexBufferObject, GLuint textureColourBuffer, GLuint computeTexture)
+	{
+		if (screenQuadVertexArrayObject == 0)
+		{
+			float quadVertices[] = {
+				// positions        // texture Coords
+				-1.0f,  1.0f, 0.0f, 0.0f, 1.0f,
+				-1.0f, -1.0f, 0.0f, 0.0f, 0.0f,
+				 1.0f,  1.0f, 0.0f, 1.0f, 1.0f,
+				 1.0f, -1.0f, 0.0f, 1.0f, 0.0f,
+			};
+			// setup plane VAO
+			glGenVertexArrays(1, &screenQuadVertexArrayObject);
+			glGenBuffers(1, &screenQuadVertexBufferObject);
+			glBindVertexArray(screenQuadVertexArrayObject);
+			glBindBuffer(GL_ARRAY_BUFFER, screenQuadVertexBufferObject);
+			glBufferData(GL_ARRAY_BUFFER, sizeof(quadVertices), &quadVertices, GL_STATIC_DRAW);
+			glEnableVertexAttribArray(0);
+			glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)0);
+			glEnableVertexAttribArray(1);
+			glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)(3 * sizeof(float)));
+		}
+
+		
+		
+	}
+
+	/*void initPoints()
 	{
 
 		//points.resize(numberOfPoints);
@@ -365,34 +559,58 @@ private:
 
 		}
 
-		/* // Show the interval of the points.
+		// Show the interval of the points.
 		std::cout << "X = [" + std::to_string(negDim.x) + ", " + std::to_string(dim.x) + "]" << std::endl;
 		std::cout << "Y = [" + std::to_string(negDim.y) + ", " + std::to_string(dim.y) + "]" << std::endl;
 		std::cout << "Z = [" + std::to_string(negDim.z) + ", " + std::to_string(dim.z) + "]" << std::endl;
-		*/
-	}
+		
+	}*/
 
+	// https://antongerdelan.net/opengl/compute.html
 	void workGroupSize()
 	{
 
+		int work_grp_cnt[3];
 
+		glGetIntegeri_v(GL_MAX_COMPUTE_WORK_GROUP_COUNT, 0, &work_grp_cnt[0]);
+		glGetIntegeri_v(GL_MAX_COMPUTE_WORK_GROUP_COUNT, 1, &work_grp_cnt[1]);
+		glGetIntegeri_v(GL_MAX_COMPUTE_WORK_GROUP_COUNT, 2, &work_grp_cnt[2]);
+
+		printf("max global (total) work group counts x:%i y:%i z:%i\n",
+			work_grp_cnt[0], work_grp_cnt[1], work_grp_cnt[2]);
+
+		int work_grp_size[3];
+
+		glGetIntegeri_v(GL_MAX_COMPUTE_WORK_GROUP_SIZE, 0, &work_grp_size[0]);
+		glGetIntegeri_v(GL_MAX_COMPUTE_WORK_GROUP_SIZE, 1, &work_grp_size[1]);
+		glGetIntegeri_v(GL_MAX_COMPUTE_WORK_GROUP_SIZE, 2, &work_grp_size[2]);
+
+		printf("max local (in one shader) work group sizes x:%i y:%i z:%i\n",
+			work_grp_size[0], work_grp_size[1], work_grp_size[2]);
+
+		int work_grp_inv;
+
+		glGetIntegerv(GL_MAX_COMPUTE_WORK_GROUP_INVOCATIONS, &work_grp_inv);
+		printf("max local work group invocations %i\n", work_grp_inv);
 
 	}
 
 	void renderPoints()
 	{
 
-		if (positions != nullptr)//(!points.empty())
+		if (particles != nullptr)//(!points.empty())
 		{
+
+			glEnable(GL_PROGRAM_POINT_SIZE);
 
 			glGenVertexArrays(1, &VAO);
 			glGenBuffers(1, &VBO);
 
 			glBindVertexArray(VAO);
-			glBindBuffer(GL_ARRAY_BUFFER, posSSBO);
-			glBufferData(GL_ARRAY_BUFFER, /*points.size()*/ numberOfPoints * sizeof(glm::vec4), /*&points.front()*/ positions, GL_STATIC_DRAW);
+			glBindBuffer(GL_ARRAY_BUFFER, particleSSBO);
+			glBufferData(GL_ARRAY_BUFFER, numberOfPoints * sizeof(Particle), particles, GL_STATIC_DRAW);
 
-			glVertexAttribPointer(0, 4, GL_FLOAT, GL_FALSE, sizeof(glm::vec4), (void*)0);
+			glVertexAttribPointer(0, 4, GL_FLOAT, GL_FALSE, sizeof(glm::vec4) * 2, (void*)0); 
 			glEnableVertexAttribArray(0);
 
 			glBindBuffer(GL_ARRAY_BUFFER, 0);
@@ -421,9 +639,18 @@ private:
 		glBindBuffer(GL_ARRAY_BUFFER, 0);
 		glBindVertexArray(0);
 
+		freeVolume();
+
 	}
 
-	void freePositions()
+	void freeVolume()
+	{
+
+		delete volumeIntensities;
+
+	}
+
+	/*void freePositions()
 	{
 
 		delete positions;
@@ -435,7 +662,7 @@ private:
 
 		delete velocities;
 
-	}
+	}*/
 
 	/* Callbacks Start. */
 
@@ -457,6 +684,9 @@ private:
 	{
 
 		float camSpeed = deltaTime * SPEED;
+
+		executionSize = glm::vec2(width, height);
+		texelSize = 1.0f / executionSize;
 
 		// Close the app when pressing the ESC key.
 		if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)

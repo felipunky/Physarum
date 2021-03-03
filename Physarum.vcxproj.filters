@@ -58,5 +58,11 @@
     <None Include="Comp.comp">
       <Filter>Shaders</Filter>
     </None>
+    <None Include="ScreenFrag.frag">
+      <Filter>Shaders</Filter>
+    </None>
+    <None Include="ScreenVert.vert">
+      <Filter>Shaders</Filter>
+    </None>
   </ItemGroup>
 </Project>

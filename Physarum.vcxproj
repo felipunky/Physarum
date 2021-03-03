@@ -157,6 +157,8 @@
   <ItemGroup>
     <None Include="Comp.comp" />
     <None Include="Frag.frag" />
+    <None Include="ScreenFrag.frag" />
+    <None Include="ScreenVert.vert" />
     <None Include="Vert.vert" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

@@ -186,7 +186,7 @@ public:
 		glUniformMatrix4fv(glGetUniformLocation(ID, name.c_str()), 1, GL_FALSE, &mat[0][0]);
 	}
 
-	void createTexture(unsigned int* texture, std::string fileName, std::string samplerName,
+	void createTexture(GLuint* texture, std::string fileName, std::string samplerName,
 		int uniform
 	)
 	{
@@ -240,6 +240,37 @@ public:
 
 	}
 
+	void create3DTexture(GLuint* texture, std::string samplerName, GLuint dimX, GLuint dimY, GLuint dimZ, GLuint uniform, float* data)
+	{
+
+		glEnable(GL_TEXTURE_3D);
+		glActiveTexture(GL_TEXTURE0);
+		glGenTextures(1, texture);
+		glBindTexture(GL_TEXTURE_3D, *texture);
+		glTexImage3D(GL_TEXTURE_3D, 0, GL_R8, dimX, dimY, dimZ, 0, GL_RED, GL_UNSIGNED_BYTE, data);
+
+		this->setInt(samplerName, uniform);
+		// https://stackoverflow.com/questions/17015132/compute-shader-not-modifying-3d-texture
+		glBindImageTexture(0, *texture, 0, GL_TRUE, 0, GL_READ_WRITE, GL_R8);
+
+
+	}
+
+	void createImageUnit(GLuint* texture, GLuint width, GLuint height)
+	{
+
+		glGenTextures(1, texture);
+		glActiveTexture(GL_TEXTURE0);
+		glBindTexture(GL_TEXTURE_2D, *texture);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, width, height, 0, GL_RGBA, GL_FLOAT, NULL);
+		glBindImageTexture(0, *texture, 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_RGBA32F);
+
+	}
+
 	/* Compute Shader Stuff Start. */
 
 	void bindBufferBase(GLuint index, GLuint SSBO)
@@ -249,12 +280,18 @@ public:
 	
 	}
 
+	void bindImageBufferBase(GLuint texture)
+	{
+
+		glBindImageTexture(0, texture, 0, GL_FALSE, 0, GL_READ_WRITE, GL_RGBA32F);
+
+	}
+
 	void compute(GLuint numGroupsX, GLuint numGroupsY, GLuint numGroupsZ)
 	{
 
-		this->use();
 		glDispatchCompute(numGroupsX, numGroupsY, numGroupsZ);
-		glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
+		glMemoryBarrier(GL_ALL_BARRIER_BITS);
 
 	}
 
